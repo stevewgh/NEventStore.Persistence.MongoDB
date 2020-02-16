@@ -358,15 +358,25 @@ namespace NEventStore.Persistence.MongoDB
 
         public virtual ICommit Commit(CommitAttempt attempt)
         {
+            if (this._options.UseClientSideCheckpointAssignment)
+            {
+                return CommitWithClientSideCheckpoint(attempt);
+            }
+
+            return CommitWithDatabaseCheckpoint(attempt);
+        }
+
+        private ICommit CommitWithClientSideCheckpoint(CommitAttempt attempt)
+        {
             if (Logger.IsDebugEnabled) Logger.Debug(Messages.AttemptingToCommit, attempt.Events.Count, attempt.StreamId, attempt.CommitSequence);
 
             return TryMongo(() =>
             {
                 Int64 checkpointId;
-                var commitDoc = attempt.ToMongoCommit(
-                    checkpointId = _checkpointGenerator.Next(),
-                    _serializer
-                );
+                BsonDocument commitDoc = attempt.ToMongoCommit(
+                        checkpointId = _checkpointGenerator.Next(),
+                        _serializer
+                    );
 
                 bool retry = true;
                 while (retry)
@@ -429,6 +439,66 @@ namespace NEventStore.Persistence.MongoDB
                             if (Logger.IsInfoEnabled) Logger.Info(Messages.ConcurrencyExceptionError, attempt.CommitId, checkpointId, attempt.BucketId, attempt.StreamId, e);
                             throw new ConcurrencyException();
                         }
+                    }
+                }
+
+                return commitDoc.ToCommit(_serializer);
+            });
+        }
+
+        private ICommit CommitWithDatabaseCheckpoint(CommitAttempt attempt)
+        {
+            if (Logger.IsDebugEnabled) Logger.Debug(Messages.AttemptingToCommit, attempt.Events.Count, attempt.StreamId, attempt.CommitSequence);
+
+            return TryMongo(() =>
+            {
+                BsonDocument commitDoc = attempt.ToMongoCommit(_serializer);
+
+                bool retry = true;
+                while (retry)
+                {
+                    try
+                    {
+                        // for concurrency / duplicate commit detection safe mode is required
+                        PersistedCommits.InsertOne(commitDoc);
+
+                        retry = false;
+                        if (!_options.DisableSnapshotSupport)
+                        {
+                            UpdateStreamHeadInBackgroundThread(attempt.BucketId, attempt.StreamId, attempt.StreamRevision, attempt.Events.Count);
+                        }
+
+                        if (Logger.IsDebugEnabled) Logger.Debug(Messages.CommitPersisted, attempt.CommitId);
+                    }
+                    catch (MongoException e)
+                    {
+                        if (!e.Message.Contains(ConcurrencyException))
+                        {
+                            if (Logger.IsErrorEnabled) Logger.Error(Messages.GenericPersistingError, attempt.CommitId, attempt.BucketId, attempt.StreamId, e);
+                            throw;
+                        }
+
+                        if (e.Message.Contains(MongoCommitIndexes.CommitId))
+                        {
+                            var msg = String.Format(Messages.DuplicatedCommitError, attempt.CommitId, 0, attempt.BucketId, attempt.StreamId);
+                            if (Logger.IsInfoEnabled) Logger.Info(msg);
+                            throw new DuplicateCommitException(msg);
+                        }
+
+                        ICommit savedCommit = PersistedCommits
+                            .FindSync(attempt.ToMongoCommitIdQuery())
+                            .FirstOrDefault()
+                            .ToCommit(_serializer);
+
+                        if (savedCommit != null && savedCommit.CommitId == attempt.CommitId)
+                        {
+                            var msg = String.Format(Messages.DuplicatedCommitError, attempt.CommitId, 0, attempt.BucketId, attempt.StreamId);
+                            if (Logger.IsInfoEnabled) Logger.Info(msg);
+                            throw new DuplicateCommitException(msg);
+                        }
+
+                        if (Logger.IsInfoEnabled) Logger.Info(Messages.ConcurrencyExceptionError, attempt.CommitId, 0, attempt.BucketId, attempt.StreamId, e);
+                        throw new ConcurrencyException();
                     }
                 }
 

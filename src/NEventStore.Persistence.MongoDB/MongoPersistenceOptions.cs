@@ -27,7 +27,7 @@ namespace NEventStore.Persistence.MongoDB
         {
             return new MongoCollectionSettings
             {
-                AssignIdOnInsert = false,
+                AssignIdOnInsert = !UseClientSideCheckpointAssignment,
                 WriteConcern = WriteConcern.Acknowledged
             };
         }
@@ -36,7 +36,7 @@ namespace NEventStore.Persistence.MongoDB
         {
             return new MongoCollectionSettings
             {
-                AssignIdOnInsert = false,
+                AssignIdOnInsert = !UseClientSideCheckpointAssignment,
                 WriteConcern = WriteConcern.Unacknowledged
             };
         }
@@ -45,7 +45,7 @@ namespace NEventStore.Persistence.MongoDB
         {
             return new MongoCollectionSettings
             {
-                AssignIdOnInsert = false,
+                AssignIdOnInsert = !UseClientSideCheckpointAssignment,
                 WriteConcern = WriteConcern.Unacknowledged
             };
         }
@@ -65,9 +65,23 @@ namespace NEventStore.Persistence.MongoDB
         /// This is the instance of the Id Generator I want to use to 
         /// generate checkpoint. 
         /// </summary>
-        public ICheckpointGenerator CheckpointGenerator { get; set; }
+        public ICheckpointGenerator CheckpointGenerator {
+            get {
+                return _CheckpointGenerator;
+            } 
+            set {
+                if(!UseClientSideCheckpointAssignment)
+                {
+                    throw new Exception("Checkpoint Generator can only be used when UseClientSideCheckpointAssignment is True");
+                }
+
+                _CheckpointGenerator = value;
+            } 
+        }
 
         public ConcurrencyExceptionStrategy ConcurrencyStrategy { get; set; }
+
+        public bool UseClientSideCheckpointAssignment { get; set; }
 
         public String SystemBucketName { get; set; }
 
@@ -95,7 +109,10 @@ namespace NEventStore.Persistence.MongoDB
         {
             SystemBucketName = "system";
             ConcurrencyStrategy = ConcurrencyExceptionStrategy.Continue;
+            UseClientSideCheckpointAssignment = true;
         }
+
+        private ICheckpointGenerator _CheckpointGenerator;
     }
 
     public enum ConcurrencyExceptionStrategy

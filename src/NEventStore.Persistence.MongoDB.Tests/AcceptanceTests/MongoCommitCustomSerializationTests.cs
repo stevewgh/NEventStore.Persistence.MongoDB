@@ -33,9 +33,9 @@ namespace NEventStore.Persistence.MongoDB.Tests.AcceptanceTests
     {
         public static void MapMongoCommit_Header_as_Document()
         {
-            if (!BsonClassMap.IsClassMapRegistered(typeof(MongoCommit)))
+            if (!BsonClassMap.IsClassMapRegistered(typeof(MongoCommitClientAssigned)))
             {
-                BsonClassMap.RegisterClassMap<MongoCommit>(cm =>
+                BsonClassMap.RegisterClassMap<MongoCommitClientAssigned>(cm =>
                 {
                     cm.AutoMap();
                     cm.MapMember(c => c.Headers)

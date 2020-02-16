@@ -47,9 +47,39 @@ namespace NEventStore.Persistence.MongoDB
                         {MongoCommitFields.Payload, BsonDocumentWrapper.Create(typeof(EventMessage), serializer.Serialize(e))}
                     });
 
-            var mc = new MongoCommit
+            var mc = new MongoCommitClientAssigned
             {
-                CheckpointNumber = checkpoint,
+                Id = checkpoint,
+                CommitId = commit.CommitId,
+                CommitStamp = commit.CommitStamp,
+                Headers = commit.Headers,
+                Events = new BsonArray(events),
+                StreamRevisionFrom = streamRevisionStart,
+                StreamRevisionTo = streamRevision - 1,
+                BucketId = commit.BucketId,
+                StreamId = commit.StreamId,
+                CommitSequence = commit.CommitSequence
+            };
+
+            return mc.ToBsonDocument();
+        }
+
+        public static BsonDocument ToMongoCommit(this CommitAttempt commit, IDocumentSerializer serializer)
+        {
+            int streamRevision = commit.StreamRevision - (commit.Events.Count - 1);
+            int streamRevisionStart = streamRevision;
+
+            IEnumerable<BsonDocument> events = commit
+                .Events
+                .Select(e =>
+                    new BsonDocument
+                    {
+                        {MongoCommitFields.StreamRevision, streamRevision++},
+                        {MongoCommitFields.Payload, BsonDocumentWrapper.Create(typeof(EventMessage), serializer.Serialize(e))}
+                    });
+
+            var mc = new MongoCommitDatabaseAssigned
+            {
                 CommitId = commit.CommitId,
                 CommitStamp = commit.CommitStamp,
                 Headers = commit.Headers,
@@ -70,9 +100,9 @@ namespace NEventStore.Persistence.MongoDB
             if (String.IsNullOrWhiteSpace(systemBucketName)) throw new ArgumentNullException(nameof(systemBucketName));
             int streamRevisionStart = commit.StreamRevision - (commit.Events.Count - 1);
 
-            var mc = new MongoCommit
+            var mc = new MongoCommitClientAssigned
             {
-                CheckpointNumber = checkpoint,
+                Id = checkpoint,
                 CommitId = commit.CommitId,
                 CommitStamp = commit.CommitStamp,
                 Headers = new Dictionary<String, Object>(),
@@ -126,23 +156,45 @@ namespace NEventStore.Persistence.MongoDB
                 return null;
             }
 
-            var mc = BsonSerializer.Deserialize<MongoCommit>(doc);
-
-            return new Commit(mc.BucketId,
-                mc.StreamId,
-                mc.StreamRevisionTo,
-                mc.CommitId,
-                mc.CommitSequence,
-                mc.CommitStamp,
-                mc.CheckpointNumber,
-                mc.Headers,
-                mc.Events.Select(e =>
-                {
-                    BsonValue payload = e.AsBsonDocument[MongoCommitFields.Payload];
-                    return payload.IsBsonDocument
-                           ? BsonSerializer.Deserialize<EventMessage>(payload.ToBsonDocument())
-                           : serializer.Deserialize<EventMessage>(payload.AsByteArray); // ByteStreamDocumentSerializer ?!?! doesn't work this way!
+            if (doc[MongoCommitFields.CheckpointNumber].IsInt64)
+            {
+                var mc = BsonSerializer.Deserialize<MongoCommitClientAssigned>(doc);
+                
+                return new Commit(mc.BucketId,
+                     mc.StreamId,
+                     mc.StreamRevisionTo,
+                     mc.CommitId,
+                     mc.CommitSequence,
+                     mc.CommitStamp,
+                     mc.Id,
+                     mc.Headers,
+                     mc.Events.Select(e =>
+                     {
+                         BsonValue payload = e.AsBsonDocument[MongoCommitFields.Payload];
+                         return payload.IsBsonDocument
+                                ? BsonSerializer.Deserialize<EventMessage>(payload.ToBsonDocument())
+                                : serializer.Deserialize<EventMessage>(payload.AsByteArray); // ByteStreamDocumentSerializer ?!?! doesn't work this way!
                 }));
+            } else
+            {
+                var mc = BsonSerializer.Deserialize<MongoCommitDatabaseAssigned>(doc);
+
+                return new Commit(mc.BucketId,
+                     mc.StreamId,
+                     mc.StreamRevisionTo,
+                     mc.CommitId,
+                     mc.CommitSequence,
+                     mc.CommitStamp,
+                     mc.Id.Timestamp,
+                     mc.Headers,
+                     mc.Events.Select(e =>
+                     {
+                         BsonValue payload = e.AsBsonDocument[MongoCommitFields.Payload];
+                         return payload.IsBsonDocument
+                                ? BsonSerializer.Deserialize<EventMessage>(payload.ToBsonDocument())
+                                : serializer.Deserialize<EventMessage>(payload.AsByteArray); // ByteStreamDocumentSerializer ?!?! doesn't work this way!
+                     }));
+            }
         }
 
         [Obsolete("Original code, not used anymore, replaced by the new configurable version")]
@@ -265,13 +317,23 @@ namespace NEventStore.Persistence.MongoDB
         }
     }
 
-    // let's ignore the extra elements, the 'Dispatched' field and the dispatched concept have been dropped in NEventStore 6
     [BsonIgnoreExtraElements]
-    public sealed class MongoCommit
+    public sealed class MongoCommitClientAssigned : MongoCommitBase<long>
+    {
+    }
+
+    [BsonIgnoreExtraElements]
+    public sealed class MongoCommitDatabaseAssigned : MongoCommitBase<ObjectId>
+    {
+    }
+
+    [BsonKnownTypes(typeof(MongoCommitClientAssigned), typeof(MongoCommitDatabaseAssigned))]
+    [BsonIgnoreExtraElements]
+    public abstract class MongoCommitBase<T>
     {
         [BsonId]
         [BsonElement(MongoCommitFields.CheckpointNumber)]
-        public long CheckpointNumber { get; set; }
+        public T Id { get; set; }
 
         [BsonElement(MongoCommitFields.CommitId)]
         public Guid CommitId { get; set; }
@@ -280,10 +342,9 @@ namespace NEventStore.Persistence.MongoDB
         public DateTime CommitStamp { get; set; }
 
         [BsonElement(MongoCommitFields.Headers)]
-        [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfArrays)] // we can override this specifing a classmap OR implementing an IBsonSerializer and an IBsonSerializationProvider 
+        [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfArrays)]
         public IDictionary<string, object> Headers { get; set; }
 
-        // multiple evaluations using linq can be dangerous, maybe it's better have a plain array to avoid bugs
         [BsonElement(MongoCommitFields.Events)]
         public BsonArray Events { get; set; }
 
