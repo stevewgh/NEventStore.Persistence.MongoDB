@@ -35,7 +35,7 @@ namespace NEventStore.Persistence.MongoDB.Support
         public InMemoryCheckpointGenerator(IMongoCollection<BsonDocument> collection)
         {
             _collection = collection;
-            Filter = Builders<BsonDocument>.Filter.Empty;
+            Filter = Builders<BsonDocument>.Filter.Type(MongoCommitFields.CheckpointNumber, BsonType.Int64);
             FindOptions = new FindOptions<BsonDocument, BsonDocument>()
             {
                 Limit = 1,

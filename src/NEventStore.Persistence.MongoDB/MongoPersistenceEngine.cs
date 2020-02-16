@@ -749,7 +749,7 @@ namespace NEventStore.Persistence.MongoDB
 
         private Int64 GetLastCommittedCheckPointNumber()
         {
-            var filter = Builders<BsonDocument>.Filter.Empty;
+            var filter = Builders<BsonDocument>.Filter.Type(MongoCommitFields.CheckpointNumber, BsonType.Int64);
             var findOptions = new FindOptions<BsonDocument, BsonDocument>()
             {
                 Limit = 1,

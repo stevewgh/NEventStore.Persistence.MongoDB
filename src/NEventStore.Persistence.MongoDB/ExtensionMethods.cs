@@ -47,7 +47,7 @@ namespace NEventStore.Persistence.MongoDB
                         {MongoCommitFields.Payload, BsonDocumentWrapper.Create(typeof(EventMessage), serializer.Serialize(e))}
                     });
 
-            var mc = new MongoCommitClientAssigned
+            var mc = new MongoCommit
             {
                 Id = checkpoint,
                 CommitId = commit.CommitId,
@@ -100,7 +100,7 @@ namespace NEventStore.Persistence.MongoDB
             if (String.IsNullOrWhiteSpace(systemBucketName)) throw new ArgumentNullException(nameof(systemBucketName));
             int streamRevisionStart = commit.StreamRevision - (commit.Events.Count - 1);
 
-            var mc = new MongoCommitClientAssigned
+            var mc = new MongoCommit
             {
                 Id = checkpoint,
                 CommitId = commit.CommitId,
@@ -158,7 +158,7 @@ namespace NEventStore.Persistence.MongoDB
 
             if (doc[MongoCommitFields.CheckpointNumber].IsInt64)
             {
-                var mc = BsonSerializer.Deserialize<MongoCommitClientAssigned>(doc);
+                var mc = BsonSerializer.Deserialize<MongoCommit>(doc);
                 
                 return new Commit(mc.BucketId,
                      mc.StreamId,
@@ -318,22 +318,47 @@ namespace NEventStore.Persistence.MongoDB
     }
 
     [BsonIgnoreExtraElements]
-    public sealed class MongoCommitClientAssigned : MongoCommitBase<long>
-    {
-    }
-
-    [BsonIgnoreExtraElements]
-    public sealed class MongoCommitDatabaseAssigned : MongoCommitBase<ObjectId>
-    {
-    }
-
-    [BsonKnownTypes(typeof(MongoCommitClientAssigned), typeof(MongoCommitDatabaseAssigned))]
-    [BsonIgnoreExtraElements]
-    public abstract class MongoCommitBase<T>
+    public sealed class MongoCommit
     {
         [BsonId]
         [BsonElement(MongoCommitFields.CheckpointNumber)]
-        public T Id { get; set; }
+        public long Id { get; set; }
+
+        [BsonElement(MongoCommitFields.CommitId)]
+        public Guid CommitId { get; set; }
+
+        [BsonElement(MongoCommitFields.CommitStamp)]
+        public DateTime CommitStamp { get; set; }
+
+        [BsonElement(MongoCommitFields.Headers)]
+        [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfArrays)]
+        public IDictionary<string, object> Headers { get; set; }
+
+        [BsonElement(MongoCommitFields.Events)]
+        public BsonArray Events { get; set; }
+
+        [BsonElement(MongoCommitFields.StreamRevisionFrom)]
+        public int StreamRevisionFrom { get; set; }
+
+        [BsonElement(MongoCommitFields.StreamRevisionTo)]
+        public int StreamRevisionTo { get; set; }
+
+        [BsonElement(MongoCommitFields.BucketId)]
+        public string BucketId { get; set; }
+
+        [BsonElement(MongoCommitFields.StreamId)]
+        public string StreamId { get; set; }
+
+        [BsonElement(MongoCommitFields.CommitSequence)]
+        public int CommitSequence { get; set; }
+    }
+
+    [BsonIgnoreExtraElements]
+    public sealed class MongoCommitDatabaseAssigned
+    {
+        [BsonId]
+        [BsonElement(MongoCommitFields.CheckpointNumber)]
+        public ObjectId Id { get; set; }
 
         [BsonElement(MongoCommitFields.CommitId)]
         public Guid CommitId { get; set; }
