@@ -87,10 +87,10 @@
 		/// </summary>
 		/// <param name="connectionString">Connection string</param>
 		/// <returns>nevenstore mongodatabase store</returns>
-		public virtual MongoDatabase ConnectToDatabase(string connectionString)
+		public virtual IMongoDatabase ConnectToDatabase(string connectionString)
 		{
 			var builder = new MongoUrlBuilder(connectionString);
-			MongoDatabase database = (new MongoClient(connectionString)).GetServer().GetDatabase(builder.DatabaseName);
+			IMongoDatabase database = (new MongoClient(connectionString)).GetDatabase(builder.DatabaseName);
 			return database;
 		}
 
